@@ -49,7 +49,6 @@ const EMPTY: Band = {
   name: '',
   project: '',
   session: '',
-  transcript: '',
   reused: [],
   created: [],
   dupes: [],
@@ -110,6 +109,20 @@ async function readLevel($: EngineInterface): Promise<string> {
 const run = ($: EngineInterface, command: string, args = '') => $.command.run({ command, args })
 
 type Options = { readonly [field: string]: unknown }
+
+// The session's transcript, from its id: a mod event carries no transcript_path, and a managed install skips a
+// plugin's classic.* handlers. The project folder is the cwd with every other character a dash; a long cwd is cut
+// and hashed, so a miss looks for the file in every project folder.
+async function transcriptPath($: EngineInterface): Promise<string> {
+  const projects = `${await claudeDir($)}/projects`
+  const file = `${await $.session.id()}.jsonl`
+  const direct = `${projects}/${(await $.session.cwd()).replace(/[^a-zA-Z0-9]/g, '-')}/${file}`
+  if (await $.fs.exists(direct)) return direct
+  for (const dir of await $.fs.list(projects).catch(() => [])) {
+    if (dir.kind === 'dir' && (await $.fs.exists(`${projects}/${dir.name}/${file}`))) return `${projects}/${dir.name}/${file}`
+  }
+  return ''
+}
 
 // The session's sidebar name. grep, because $.fs.read refuses files over 4 MiB and transcripts grow past that.
 // shortcut: without grep (Windows) only a transcript under 4 MiB is read; findstr would lift that.
@@ -223,12 +236,6 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // Only the classic hook input carries the transcript path, which holds the sidebar name.
-  on('classic.UserPromptSubmit', async ($, e, next) => {
-    await update($, band, b => (b.transcript === e.transcript_path ? b : { ...EMPTY, ...b, transcript: e.transcript_path }))
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
   // The first prompt names the task until the session has a sidebar name.
   on('prompt.submit', async ($, e, next) => {
     const text = e.text.trim()
@@ -290,7 +297,8 @@ export const register: Register = (on, options) => {
     const usage = await $.session.usage()
     const turns = await $.session.turns()
     const level = await readLevel($)
-    const { removed, transcript } = await load($)
+    const { removed } = await load($)
+    const transcript = await transcriptPath($)
     const title = await readTitle($, transcript)
     const model = await readModel($, transcript)
 

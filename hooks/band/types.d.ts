@@ -18,7 +18,6 @@ export type Band = {
   name: string
   project: string
   session: string
-  transcript: string
   reused: string[]
   created: string[]
   dupes: { name: string; like: string }[]
